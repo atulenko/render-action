@@ -66,7 +66,7 @@ function getContext() {
             throw new Error('Invalid event type! Only "pull_request" and "push" are supported. ❌');
     }
 }
-function findService({ pr }) {
+function findService(context, retries = 0) {
     var _a;
     return __awaiter(this, void 0, void 0, function* () {
         const serviceId = Core.getInput('service-id');
@@ -74,13 +74,22 @@ function findService({ pr }) {
         if (!service) {
             throw new Error(`Server ${serviceId} not found! ❌`);
         }
+        const { pr } = context;
         if (pr) {
             Core.info('Running in Pull Request: Listing Pull Request Servers...');
             const { result: cursors } = yield client.getJson(`https://api.render.com/v1/services?name=${service.name}%20PR%20%23${pr}&ownerId=${service.ownerId}`);
             const prService = (_a = cursors === null || cursors === void 0 ? void 0 : cursors.find(c => c.service.serviceDetails.parentServer.id === service.id)) === null || _a === void 0 ? void 0 : _a.service;
             if (prService)
                 return prService;
-            Core.info('No Pull Request Servers found. Using regular deployment');
+            const max_retries = ~~Core.getInput('retries');
+            if (++retries < max_retries) {
+                Core.info(`No PR deployments found. Retrying...(${retries}/${max_retries}) ⏱`);
+                yield (0, wait_1.wait)(~~Core.getInput('wait'));
+                return findService(context, retries);
+            }
+            else {
+                throw new Error(`No PR deployment found after ${retries} retries! ⚠️`);
+            }
         }
         return service;
     });
