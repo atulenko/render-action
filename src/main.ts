@@ -82,12 +82,14 @@ function getContext(): Context {
   }
 }
 
-async function findService({pr}: Context): Promise<RenderService> {
+async function findService(context: Context, retries = 0): Promise<RenderService> {
   const serviceId = Core.getInput('service-id')
   const {result: service} = await client.getJson<RenderService>(`https://api.render.com/v1/services/${serviceId}`)
   if (!service) {
     throw new Error(`Server ${serviceId} not found! ❌`)
   }
+
+  const {pr} = context
 
   if (pr) {
     Core.info('Running in Pull Request: Listing Pull Request Servers...')
@@ -97,7 +99,14 @@ async function findService({pr}: Context): Promise<RenderService> {
 
     const prService = cursors?.find(c => c.service.serviceDetails.parentServer.id === service.id)?.service
     if (prService) return prService
-    Core.info('No Pull Request Servers found. Using regular deployment')
+    const max_retries = ~~Core.getInput('retries')
+    if (++retries < max_retries) {
+      Core.info(`No PR deployments found. Retrying...(${retries}/${max_retries}) ⏱`)
+      await wait(~~Core.getInput('wait'))
+      return findService(context, retries)
+    } else {
+      throw new Error(`No PR deployment found after ${retries} retries! ⚠️`)
+    }
   }
 
   return service
